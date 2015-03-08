@@ -1,0 +1,702 @@
+# dBuilder
+# By: Talamar1
+# Todo:
+# Inventory system to return items back to player
+# Withdraw to return money to player
+# Cancel to get rid of builder seed and let user have access to supplies/deposits
+# Make $ support decimals and remove as_int everywhere, make money "pretty" using 2 digit decimals
+# Allow for different build speeds?  Set a key on schema yaml or maybe they can pay for different speeds?
+#   Default global speed stored in dbuilder_config?
+
+
+dBuilder:
+  type: world
+  debug: false
+  events:
+    on server start:
+    - run dbuilder_init delay:2s
+    on player right clicks with i@dbuilder_seed:
+    - if !<player.has_flag[dbuilder.schematic]> {
+      - narrate "<red>You have lost your selected schematic."
+      - narrate "<red>You have been recredited your selection."
+      - narrate "<red>Please make a new section and get a new seed."
+      - inject dbuilder_command_return
+      - queue stop
+      }
+    - define clickloc <context.location.add[0,1,0]>
+    # Create Builder
+    - if !<player.has_flag[dbuilder.npc]> {
+      - create player dBuilder_<player.name> %clickloc% save:dBuilder
+      - execute as_op "npc select <entry[dBuilder].created_npc>"
+      - execute as_op "npc gravity"
+      - define npc <entry[dBuilder].created_npc>
+      - assignment set npc:%npc% script:dbuilder_npc_assignment
+      - flag dbuilder.npc:%npc%
+      }
+      else {
+      - define npc <player.flag[dbuilder.npc]>
+      }
+    # Load Schematic
+    - define schem <player.flag[dbuilder.schematic]>
+    - schematic load name:%schem%
+    # Setup cuboid and locations
+    - inject dbuilder_setup_location
+    # Check to make sure region is buildable
+    # - inject dbuilder_check_region
+    # check to make sure not in opponent faction
+    # - inject dbuilder_check_faction
+    # Show outline of build
+    - inject dbuilder_show_outline
+    - flag dbuilder.origin:%clickloc%
+    
+    - schematic unload name:%schem%
+    
+    on dbuilder|dbuild command:
+    - determine passively fulfilled
+    - if <global.has_flag[dbuild.disabled]> {
+      - narrate "Error loading files, dBuilder disabled"
+      - queue stop
+      }
+    - if <context.server> {
+      - define isop true
+      }
+      else if <player.has_permission[dbuilder.command]> {
+      - define isop true
+      }
+    - if <el@val[list].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_list
+      }
+      else if <context.args.get[1].matches[^(show|display|demo)$]> {
+      - inject dbuilder_command_show
+      }
+      else if <el@val[back].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_back
+      }
+      else if <el@val[select].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_select
+      }
+      else if <el@val[clear].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_clear
+      }
+      else if <el@val[buy].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_buy
+      }
+      else if <el@val[return].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_return
+      }
+      else if <el@val[deposit].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_deposit
+      }
+      else if <el@val[supply].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_supply
+      }
+      else if <context.args.get[1].matches[^(bal|balance)$]> {
+      - inject dbuilder_command_balance
+      }
+      else if <el@val[build].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_build
+      }
+      else if <el@val[stop].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_stop
+      }
+      else if <el@val[rotate].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_rotate
+      }
+      else if <el@val[undo].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_undo
+      }
+      else if <el@val[help].is[==].to[<context.args.get[1]>]> {
+      - inject dbuilder_command_help
+      }
+      else if <el@val[add].is[==].to[<context.args.get[1]>]> && %isop% {
+      - inject dbuilder_command_add
+      }
+      else if <context.args.get[1].matches[^(rem|remove|del|delete)$]> && %isop% {
+      - inject dbuilder_command_remove
+      }
+      else if <el@val[reload].is[==].to[<context.args.get[1]>]> && %isop% {
+      - inject dbuilder_init
+      }
+      else if <el@val[update].is[==].to[<context.args.get[1]>]> && %isop% {
+      - inject dbuilder_command_update
+      }
+      else if <el@val[setshow].is[==].to[<context.args.get[1]>]> && %isop% {
+      - inject dbuilder_command_setshow
+      }
+      else {
+      - narrate "<&6>/dBuild help <command> for additional help"
+      - narrate "<&6>/dBuild list"
+      - narrate "<&6>/dBuild show"
+      - narrate "<&6>/dBuild back"
+      - narrate "<&6>/dBuild select"
+      - narrate "<&6>/dBuild clear"
+      - narrate "<&6>/dBuild buy"
+      - narrate "<&6>/dBuild return"
+      - narrate "<&6>/dBuild deposit"
+      - narrate "<&6>/dBuild supply"
+      - narrate "<&6>/dBuild balance"
+      - narrate "<&6>/dBuild build"
+      - narrate "<&6>/dBuild rotate"
+      - narrate "<&6>/dBuild undo"
+      - if %isop% {
+        - narrate "<&6>Admin Commands"
+        - narrate "<&6>/dBuild add <&lt>schematic name<&gt> <&lt><&dq>Description<&dq><&gt>"
+        - narrate "<&6>/dBuild remove <&lt>Build ID<&gt>"
+        - narrate "<&6>/dBuild reload"
+        - narrate "<&6>/dBuild update"
+        - narrate "<&6>/dBuild setshow"
+        }
+      }
+
+dbuilder_init:
+  type: task
+  debug: false
+  script:
+    - if <server.has_file[dbuilder_config.yml]> {
+      - if <yaml.list.contains[dbuilder_config]> yaml unload id:dbuilder_config
+      - yaml load:dbuilder_config.yml id:dbuilder_config
+      - flag global dbuild.disabled:!
+      - narrate "<gold>Loaded dBuilder config file"
+      }
+      else {
+      - yaml create id:dbuilder_config
+      - inject dbuilder_util_saveconfig
+      - narrate "<red>Created new dBuilder configuration file."
+      }
+    - if <server.has_file[items.yml]> {
+      - if <yaml.list.contains[item_price]> yaml unload id:item_price
+      - yaml load:items.yml id:item_price
+      - flag global dbuild.disabled:!
+      - narrate "<gold>Loaded dBuilder item file"
+      }
+      else {
+      - flag global dbuild.disabled
+      - narrate "<red>Failed to load dBuilder item file."
+      }
+
+dbuilder_command_add:
+  type: task
+  debug: false
+  script:
+    - ^if <context.args.size> >= 2 {
+      - ^define schem <context.args.get[2]>
+      - ^if <server.has_file[builder/%schem%.yml]> {
+        - ^yaml load:builder/%schem%.yml id:%schem%
+        - ^if <yaml[%schem%].list_keys[%schem%].size> != 0 {
+          - ^narrate "Schematic has been loaded previously."
+          - ^narrate "If you wish to import, delete the old copy first"
+          - ^queue stop
+          }
+        }
+      - ^if !<server.has_file[schematics/%schem%.schematic]> {
+        - ^narrate "Schematic is missing."
+        - ^queue stop
+        }
+      - ^yaml create id:%schem%
+      - ^schematic unload name:%schem%
+      - ^schematic load name:%schem%
+      - ^define sx <schematic[%schem%].length.sub[1]>
+      - ^define sy <schematic[%schem%].height.sub[1]>
+      - ^define sz <schematic[%schem%].width.sub[1]>
+      - ^define sorigin <schematic[%schem%].origin>
+      - ^define soffset <schematic[%schem%].offset>
+      - ^define sstart l@0,0,0,prison
+      - ^define scu cu@%sstart%|<def[sstart].add[%sz%,%sy%,%sx%]>
+      - ^foreach <def[scu].get_blocks> {
+        - ^yaml id:%schem% set %schem%.block.<schematic[%schem%].block[%value%]>:+:1
+        }
+      - ^narrate "Loaded <schematic[%schem%].blocks> blocks"
+      - ^schematic unload name:%schem%
+      - ^yaml savefile:builder/%schem%.yml id:%schem%
+      - ^yaml unload id:%schem%
+      - inject dbuilder_util_cost
+      - if <context.args.get[3]||null> != null {
+        - ^yaml id:dbuilder_config set config.schematics.%schem%.description:<context.args.get[3]>
+        }
+      - ^yaml id:dbuilder_config set config.list:->:%schem%
+      - inject dbuilder_util_saveconfig
+      - narrate "Loading of %schem% complete."
+      }
+      else {
+      - narrate "Invalid argument for add command"
+      }
+    - queue stop
+
+dbuilder_command_remove:
+  type: task
+  debug: false
+  script:
+    - ^if <context.args.size> == 2 {
+      - ^define schem <context.args.get[2]>
+      - ^if <server.has_file[builder/%schem%.yml]> {
+        - ^yaml load:builder/%schem%.yml id:%schem%
+        - ^foreach <yaml[%schem%].list_keys[%schem%]> {
+          - ^yaml id:%schem% set %schem%.%value%:!
+          }
+        - ^yaml savefile:builder/%schem%.yml id:%schem%
+        - ^yaml id:dbuilder_config set config.schematics.%schem%:!
+        - ^yaml id:dbuilder_config set config.list:<-:%schem%
+        - inject dbuilder_util_saveconfig
+        - ^yaml unload id:%schem%
+        - ^narrate "Schematic %schem% deleted"
+        }
+        else {
+        - ^narrate "Schematic not found"
+        }
+      }
+      else {
+      - ^narrate "Invalid argument for remove command"
+      }
+    - queue stop
+
+dbuilder_command_list:
+  type: task
+  debug: false
+  script:
+    # Need to handle long lists.  Maybe prefetch into a list then if args2 is_int, print (arg-1*7)+1..ars*7
+    - ^foreach <yaml[dbuilder_config].list_keys[config.schematics]> {
+      - narrate "<gold><def[loop_index].to_uppercase.pad_left[3]> <dark_green><def[value].to_uppercase.pad_right[12]> <white><yaml[dbuilder_config].read[config.schematics.%value%.description]||<&sp>>"
+      }
+    - queue stop
+
+dbuilder_command_return:
+  type: task
+  debug: false
+  script:
+    - if !<player.has_flag[dbuilder.bought]> {
+      - narrate "<red>You haven't purchased anything."
+      - queue stop
+      }
+    - if <player.inventory.contains[i@dbuilder_seed]> {
+      - take i@dbuilder_seed
+      - narrate "Seed removed"
+      }
+    - flag player dbuilder.bought:!
+    - narrate "Buy has been released"
+    - queue stop
+    
+dbuilder_command_update:
+  type: task
+  debug: false
+  script:
+    - ^if <context.args.size> == 1 {
+      - ^foreach <yaml[dbuilder_config].list_keys[config.schematics]> {
+        - ^define schem %value%
+        - ^inject dbuilder_util_cost
+        }
+      }
+      else if <context.args.size> == 2 {
+      - ^define schem <context.args.get[2]>
+      - ^inject dbuilder_util_cost
+      }
+      else {
+      - ^narrate "Invalid argument for update command"
+      - ^narrate "<gold>/dBuild update - Update all schematics (will take a long time)"
+      - ^narrate "<gold>/dBuild update <&lt>schematic<&gt> - Update named schematic"
+      }
+    - queue stop
+
+dbuilder_command_build:
+  type: task
+  debug: false
+  script:
+    # check for schema selectio
+    # check to see if schema is still valid
+    # check to see if player has location selected
+    - if !<player.has_flag[dbuilder.origin]> {
+      - narrate "You have not selected the location to build your schematic."
+      - narrate "Please click with your build seed to set the location."
+      - queue stop
+      }
+    # clear land
+#    - ~run dbuilder_clear_land
+    - run dbuilder_build_schematic delay:5s
+    
+dbuilder_build_schematic:
+  type: task
+  debug: true
+  script:
+    - if <player.has_flag[dbuilder.clearing]> || <player.has_flag[dbuilder.working]> {
+      - run dbuilder_build_schematic delay:5s
+      }
+      else {
+      # Get NPC
+      - ^define npc <player.flag[dbuilder.npc]>
+      # Get Schematic Name
+      - ^define schem <player.flag[dbuilder.schematic]>
+      - ^schematic load name:%schem%
+      # Setup physical map
+      - ^define clickloc <player.flag[dbuilder.origin]>
+      - ^inject dbuilder_setup_location
+      # Setup schematic
+      - ^define soffset <schematic[%schem%].offset>
+      - ^define offsetx <def[soffset].x>
+      - ^define offsety <def[soffset].y>
+      - ^define offsetz <def[soffset].z>
+      - ^define sx <schematic[%schem%].length.sub[1]>
+      - ^define sy <schematic[%schem%].height.sub[1]>
+      - ^define sz <schematic[%schem%].width.sub[1]>
+      - ^define sorigin <schematic[%schem%].origin>
+      - ^define soffset <schematic[%schem%].offset>
+      - ^define sstart l@0,0,0,<npc.location.world>
+      - ^define scu cu@%sstart%|<def[sstart].add[%sz%,%sy%,%sx%]>
+      - foreach <def[scu].get_blocks> {
+        - define mat <schematic[%schem%].block[%value%].replace[m@]>
+        - if %mat% != m@air {
+          - ^define bdata <schematic[%schem%].block[%value%].data>
+          - if %bdata% != null {
+            - ^define mat %mat%,%bdata%
+            }
+          - define blockpos <def[clickloc].add[<def[value].x>,<def[value].y>,<def[value].z>]>
+          - define blockpos <def[blockpos].add[%offsetx%,%offsety%,%offsetz%]>
+          - run dbuilder_modify_block def:<def[npc].escaped>|<def[blockpos].escaped>|<def[mat].escaped> delay:%loop_index%t
+          }
+        }
+      - ^schematic unload name:%schem%
+      }
+
+dbuilder_clear_land:
+  type: task
+  debug: false
+  script:
+    # get NPC
+    - ^define npc <player.flag[dbuilder.npc]>
+    - ^flag dbuilder.clearing
+    - ^define schem <player.flag[dbuilder.schematic]>
+    - ^schematic load name:%schem%
+    # Setup cuboid and locations
+    - ^define clickloc <player.flag[dbuilder.origin]>
+    - ^inject dbuilder_setup_location
+    #backup location
+    # make backup
+    - ^schematic create name:<player.name>_backup %buildcu% %clickloc%
+    - ^schematic save name:<player.name>_backup
+    - ^flag dbuilder.undo:<player.name>_backup
+    - foreach <def[buildcu].get_blocks> {
+      - if !<def[value].material> == m@air {
+        - define delay <def[loop_index].mul[1]>
+        - ~run dbuilder_modify_block def:<def[npc].escaped>|<def[value].escaped>|air delay:%delay%t
+        }
+      }
+    - ^flag dbuilder.clearing:!
+    - ^schematic unload name:%schem%
+
+dbuilder_modify_block:
+  type: task
+  debug: false
+  script:
+    - ^flag dbuilder.working
+    - if <player.has_flag[dbuilder.stop]> queue stop
+    - ^define npc <def[1].unescaped>
+    - ^define loc <def[2].unescaped>
+    - ^define mat <def[3].unescaped>
+    - ^teleport %npc% %loc%
+    - ^animate %npc% animation:ARM_SWING
+    - ^modifyblock %loc% m@%mat% no_physics
+    - ^flag dbuilder.working:!
+      
+dbuilder_command_select:
+  type: task
+  debug: false
+  script:
+    - if <context.args.size> == 2 {
+      - define sel <context.args.get[2]>
+      - if %sel% matches double {
+        - flag <player> dbuilder.schematic:<yaml[dbuilder_config].read[config.list].as_list.get[%sel%]>
+        }
+        else {
+        - if <yaml[dbuilder_config].read[config.list].as_list.find[%sel%]> > 0 {
+          - flag <player> dbuilder.schematic:%sel%
+          }
+          else {
+          - narrate "Invalid selection"
+          - queue stop
+          }
+        }
+      - narrate "Selection set to <player.flag[dbuilder.schematic]>"
+      }
+      else if <player.has_flag[dbuilder.schematic]> {
+      - narrate "Selection set to <player.flag[dbuilder.schematic]>"
+      }
+      else {
+      - narrate "Selection not set"
+      - ^narrate "<gold>/dBuild select <&lt>ID<&gt> - Select a schematic"
+      }
+    - queue stop
+
+dbuilder_command_clear:
+  type: task
+  debug: false
+  script:
+    - if !<player.has_flag[dbuilder.schematic]> {
+      - ^narrate "<red>You haven't selected a schematic to build"
+      }
+      else {
+      - flag player dbuilder.schematic:!
+      - ^narrate "Cleared selected schematic."
+      }
+    - ^queue stop
+
+dbuilder_command_supply:
+  type: task
+  debug: false
+  script:
+    - if <context.args.size> == 3 {
+      - define arg3 <context.args.get[3]>
+      - if <context.args.get[3]> matches double {
+        - define amount <context.args.get[3]>
+        - define mat <context.args.get[2]>
+        }
+        else {
+        - define amount <context.args.get[2]>
+        - define mat <context.args.get[3]>
+        }
+      }
+      else if <context.args.size> == 2 {
+      - define mat <context.args.get[2]>
+      - define amount <player.inventory.qty[%mat%]>
+      }
+    - if !%mat% matches item || !%amount% matches double {
+      - ^narrate "<red>Invalid input for supply"
+      - ^narrate "<gold>/dBuild supply <&lt>amount<&gt> <&lt>material<&gt>- Deposit amount of material towards build"
+      - ^narrate "<gold>/dBuild supply <&lt>material<&gt>- Deposit all of material towards build"
+      - queue stop
+      }
+    - define amount <t[<player.inventory.qty[%mat%].is[LESS].than[%amount%]>]:<player.inventory.qty[%mat%]>||%amount%>
+    - define imat <def[mat].as_item>
+    - define mmat <def[mat].as_material>
+    - take %imat% qty:%amount%
+    - narrate "Taking %amount% of <def[mmat].name> from your inventory."
+    - flag dbuilder.material.%mmat%:+:%amount%
+    - narrate "New quantity on deposit for <def[mmat].name> is <player.flag[dbuilder.material.%mmat%].as_int>"
+    - queue stop
+
+dbuilder_command_show:
+  type: task
+  debug: false
+  script:
+    - if <yaml[dbuilder_config].contains[config.setshow]> {
+      - flag setshow:<player.location>
+      - teleport <player> <yaml[dbuilder_config].read[config.setshow]>
+      }
+      else {
+      - narrate "<red>A viewing gallery has not been setup on this server"
+      }
+    - queue stop
+
+dbuilder_command_back:
+  type: task
+  debug: false
+  script:
+    - if <player.has_flag[setshow]> {
+      - teleport <player> <player.flag[setshow]>
+      - flag setshow:!
+      }
+      else {
+      - narrate "<red>No return value set"
+      }
+    - queue stop
+
+dbuilder_command_setshow:
+  type: task
+  debug: false
+  script:
+    - if <context.args.size> == 2 {
+      - if <context.args.get[2].is[==].to[here]> {
+        - yaml id:dbuilder_config set config.setshow:<player.location>
+        - inject dbuilder_util_saveconfig
+        - narrate "Gallery location spawn set."
+        - queue stop
+        }
+        else if <context.args.get[2].is[==].to[clear]> {
+        - yaml id:dbuilder_config set config.setshow:!
+        - inject dbuilder_util_saveconfig
+        - narrate "Gallery location spawn cleared."
+        - queue stop
+        }
+        else if <context.args.get[2]> matches location {
+        - yaml id:dbuilder_config set config.setshow:<context.args.get[2]>
+        - inject dbuilder_util_saveconfig
+        - narrate "Gallery location spawn set."
+        - queue stop
+        }
+      }
+    - ^narrate "<red>Invalid input for setshow"
+    - ^narrate "<gold>/dBuild setshow <&lt>x,y,z,(pitch),(yaw),world<&gt> - Sets gallery location spawn"
+    - ^narrate "<gold>/dBuild setshow <&lt>here<&gt> - Sets gallery location spawn"
+    - ^narrate "<gold>/dBuild setshow <&lt>clear<&gt> - Removes gallery location spawn"
+    - ^queue stop
+
+dbuilder_command_buy:
+  type: task
+  debug: false
+  script:
+    - if !<player.has_flag[dbuilder.schematic]> {
+      - narrate "<red>No schematic chosen."
+      - queue stop
+      }
+    - ^define schem <player.flag[dbuilder.schematic]>
+    - if !<yaml[dbuilder_config].contains[config.schematics.%schem%]> {
+      - ^narrate "<red>Your schematic is no longer a valid build."
+      - ^queue stop
+      }
+    - if <player.has_flag[dbuilder.bought]> {
+      - ^narrate "<red>Already have a Building Seed."
+      - ^queue stop
+      }
+    - ^yaml load:builder/%schem%.yml id:%schem%
+    - ^define balance <yaml[dbuilder_config].read[config.schematics.%schem%.cost]>
+    - ^foreach <yaml[%schem%].list_keys[%schem%.block]> {
+      - ^define pitem <t[<player.has_flag[dbuilder.material.%value%]>]:<player.flag[dbuilder.material.%value%]>||0>
+      - ^define qty <yaml[%schem%].read[%schem%.block.%value%]>
+      - ^define price <yaml[item_price].read[prices.<def[value].id>]>
+      - ^define cost <def[pitem].mul[%price%]>
+      - ^define balance <def[balance].sub[%cost%]>
+      }
+    - ^define pbal <t[<player.has_flag[dbuilder.balance]>]:<player.flag[dbuilder.balance]>||0>
+    - ^define balance <def[balance].sub[%pbal%]>
+    - if %balance% > 0 {
+      - narrate "You do not have enough money or resources in the supply to pay for this schematic."
+      - queue stop
+      }
+    - flag dbuilder.bought
+    - define bseed <i@dbuilder_seed>
+    - adjust %bseed% "lore:<player.name>|%schem%" save:myseed
+    - give <entry[myseed].result>
+    - narrate "You have received your build seed."
+    - queue stop
+
+dbuilder_command_deposit:
+  type: task
+  debug: false
+  script:
+    - if !<player.has_flag[dbuilder.schematic]> {
+      - ^narrate "<red>You haven't selected a schematic to build"
+      - ^queue stop
+      }
+    - if <context.args.size> == 2 {
+      - define amount <context.args.get[2]>
+      - if %amount% matches double {
+        - narrate "Adding <def[amount].as_int.format_number> to balance."
+        - take money %amount%
+        - flag player dbuilder.balance:+:%amount%
+        - narrate "Balance is now <player.flag[dbuilder.balance]>"
+        }
+        else {
+        - narrate "<red>Invalid Amount"
+        }
+      }
+      else {
+      - narrate "<red>Amount not provided"
+      - ^narrate "<gold>/dBuild deposit <&lt>amount<&gt> - Deposit amount towards build"
+      }
+    - queue stop
+      
+dbuilder_command_balance:
+  type: task
+  debug: false
+  script:
+    - if !<player.has_flag[dbuilder.schematic]> {
+      - if <player.has_flag[dbuilder.material]> {
+        - ^narrate "<el@val[Material].to_uppercase.pad_right[20].with[_]> <el@val[Amount].to_uppercase.pad_left[7].with[_]>"
+        - ^foreach <player.flag[dbuilder.material].as_list> {
+          - ^define pitem <player.flag[dbuilder.material.%value%.as_int>
+          - ^narrate "<def[value].name.to_uppercase.pad_right[20].with[_]> <def[qty].to_uppercase.pad_left[7].with[_]>"
+          }
+        }
+      - if <player.has_flag[dbuilder.balance]> {
+        - ^define pbal <t[<player.flag[dbuilder.balance].is[MORE].than[0]>]:<player.flag[dbuilder.balance]>||0>
+        - ^narrate "<el@val[Cash Paid].to_uppercase.pad_right[20].with[_]><def[pbal].as_int.format_number.pad_left[7].with[_]>"
+        }
+      - if !<player.has_flag[dbuilder.material]> && !<player.has_flag[dbuilder.balance]> {
+        - narrate "You have nothing on deposit with us"
+        }
+      - queue stop
+      }
+    - ^define schem <player.flag[dbuilder.schematic]>
+    - if !<yaml[dbuilder_config].contains[config.schematics.%schem%]> {
+      - ^narrate "<red>Your schematic is no longer a valid build."
+      - ^queue stop
+      }
+    - ^define cost <yaml[dbuilder_config].read[config.schematics.%schem%.cost]>
+    - ^narrate "Starting cost<&co> $<def[cost].format_number>"
+    - ^narrate "<el@val[Material].to_uppercase.pad_right[20].with[_]> <el@val[Schem <&ns>].to_uppercase.pad_left[7].with[_]> <el@val[Play <&ns>].to_uppercase.pad_left[7].with[_]> <el@val[Balance].to_uppercase.pad_left[15].with[_]>"
+    - ^yaml load:builder/%schem%.yml id:%schem%
+    - ^define balance %cost%
+    - ^foreach <yaml[%schem%].list_keys[%schem%.block]> {
+      - ^define pitem <t[<player.has_flag[dbuilder.material.%value%]>]:<player.flag[dbuilder.material.%value%]>||0>
+      - ^define qty <yaml[%schem%].read[%schem%.block.%value%]>
+      - ^define price <yaml[item_price].read[prices.<def[value].id>]>
+      - ^define cost <def[pitem].mul[%price%]>
+      - ^define balance <def[balance].sub[%cost%]>
+      - ^narrate "<def[value].name.to_uppercase.pad_right[20].with[_]> <def[qty].as_int.to_uppercase.pad_left[7].with[_]> <def[pitem].as_int.to_uppercase.pad_left[7].with[_]> <def[balance].as_int.format_number.pad_left[15].with[_]>"
+      }
+    - ^define pbal <t[<player.has_flag[dbuilder.balance]>]:<player.flag[dbuilder.balance]>||0>
+    - ^define balance <def[balance].sub[%pbal%]>
+    - ^narrate "<el@val[Cash Paid].to_uppercase.pad_right[20].with[_]> <def[pbal].as_int.format_number.pad_left[16].with[_]> <def[balance].as_int.format_number.pad_left[15].with[_]>"
+    
+dbuilder_util_cost:
+  type: task
+  debug: false
+  script:
+    - ^yaml load:builder/%schem%.yml id:%schem%
+    - ^define cost 0
+#      - ^narrate "%value% <yaml[%schem%].read[%schem%.block.%value%]> <yaml[item_price].read[prices.<def[value].id>]>"
+    - ^foreach <yaml[%schem%].list_keys[%schem%.block]> {
+      - ^define qty <yaml[%schem%].read[%schem%.block.%value%]>
+      - ^define price <yaml[item_price].read[prices.<def[value].id>]>
+      - ^define cost <def[cost].add[<def[qty].mul[%price%]>]>
+      }
+    - ^define cost <def[cost].as_int>
+    - ^narrate "Schematic %schem% cost is set to<&co> $<def[cost].format_number>"
+    - ^yaml id:%schem% set %schem%.cost:%cost%
+    - ^yaml savefile:builder/%schem%.yml id:%schem%
+    - ^yaml id:dbuilder_config set config.schematics.%schem%.cost:%cost%
+    - inject dbuilder_util_saveconfig
+    - ^yaml unload id:%schem%
+
+dbuilder_util_saveconfig:
+  type: task
+  debug: false
+  script:
+    - ^yaml savefile:dbuilder_config.yml id:dbuilder_config
+      
+dbuilder_seed:
+  type: item
+  material: 368
+  display name: <red>Building Seed
+  
+dbuilder_npc_assignment:
+  type: assignment
+  debug: false
+  actions:
+    on assignment:
+    - execute as_server "npc select <npc>"
+    - execute as_server "npc playerlist"
+    - execute as_server "op <npc>"
+    - lookclose state:true
+    - equip <npc> hand:diamond_pickaxe 
+    
+dbuilder_setup_location:
+  type: task
+  debug: false
+  script:
+    - define startx <schematic[%schem%].offset.x>
+    - define starty <schematic[%schem%].offset.y>
+    - define startz <schematic[%schem%].offset.z>
+    - define endx <schematic[%schem%].width.sub[1]>
+    - define endy <schematic[%schem%].height.sub[1]>
+    - define endz <schematic[%schem%].length.sub[1]>
+    - define startloc <def[clickloc].add[%startx%,%starty%,%startz%]>
+    - define endloc <def[startloc].add[%endx%,%endy%,%endz%]>
+    - define buildcu cu@%startloc%|%endloc%
+
+dbuilder_show_outline:
+  type: task
+  debug: false
+  script:
+    - teleport %npc% <def[clickloc].add[.5,0,.5]>
+    - foreach <def[buildcu].get_outline.deduplicate> {
+      - showfake glowstone %value% to:<player> d:60s
+      }
+      
